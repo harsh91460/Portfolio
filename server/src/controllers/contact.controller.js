@@ -1,5 +1,5 @@
 import pool from "../config/db.js";
-import transporter from "../config/mailer.js";
+
 
 export const sendContactMessage = async (req, res) => {
   try {
@@ -38,13 +38,25 @@ export const sendContactMessage = async (req, res) => {
       [cleanName, cleanEmail, cleanSubject, cleanMessage]
     );
 
-    await transporter.sendMail({
-      from: `"Portfolio Contact" <${process.env.SMTP_USER}>`,
-      to: process.env.CONTACT_TO,
-      replyTo: cleanEmail,
-      subject: `Portfolio: ${cleanSubject}`,
-      text: `Name: ${cleanName}\nEmail: ${cleanEmail}\nSubject: ${cleanSubject}\n\nMessage:\n${cleanMessage}`,
+    const emailResponse = await fetch(process.env.GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        token: process.env.API_SECRET,
+        name: cleanName,
+        email: cleanEmail,
+        subject: cleanSubject,
+        message: cleanMessage,
+      }),
     });
+
+    const emailResult = await emailResponse.json();
+
+    if (!emailResponse.ok || !emailResult.success) {
+      throw new Error(emailResult.message || "Google email service failed");
+    }
 
     return res.status(201).json({
       success: true,

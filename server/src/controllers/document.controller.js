@@ -1,4 +1,4 @@
-﻿import pool from "../config/db.js";
+import pool from "../config/db.js";
 import {
   uploadPdf,
   deleteCloudinaryFile,
@@ -150,7 +150,7 @@ export const getAdminCertificates = async (req, res) => {
 
 // Create certificate
 export const createCertificate = async (req, res) => {
-  const { title, issuer, description, issue_date, credential_url, sort_order } = req.body;
+  const { title, issuer, description, issue_date, credential_url, sort_order, is_visible = true } = req.body;
 
   if (!title?.trim()) {
     return res.status(400).json({ success: false, message: "Certificate title is required." });
@@ -165,8 +165,8 @@ export const createCertificate = async (req, res) => {
 
     const [result] = await pool.execute(
       `INSERT INTO certifications
-       (title, issuer, description, issue_date, credential_url, file_path, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (title, issuer, description, issue_date, credential_url, file_path, sort_order, is_visible)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title.trim(),
         issuer?.trim() || null,
@@ -175,6 +175,7 @@ export const createCertificate = async (req, res) => {
         credential_url?.trim() || null,
         filePath,
         Number.isInteger(Number(sort_order)) ? Number(sort_order) : 0,
+        is_visible === true || is_visible === "true" || is_visible === 1 || is_visible === "1" ? 1 : 0,
       ]
     );
 

@@ -1,63 +1,89 @@
-import dotenv from "dotenv";
-import mysql from "mysql2/promise";
+﻿import "dotenv/config";
+import pool from "./src/config/db.js";
 import bcrypt from "bcryptjs";
 import readline from "node:readline";
 
-dotenv.config({ path: "server/.env" });
-
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout,
+  output: process.stdout
 });
 
 const ask = (question) =>
   new Promise((resolve) => rl.question(question, resolve));
 
-async function main() {
-  let connection;
-
-  try {
-    const name = (await ask("Admin name: ")).trim();
-    const email = (await ask("Admin email: ")).trim().toLowerCase();
-    const password = (await ask("Admin password (input visible): "));
-
-    if (!name || !email || password.length < 12) {
-      throw new Error("Name/email required. Password must be at least 12 characters.");
+function askPassword() {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY || !process.stdin.setRawMode) {
+      reject(new Error("Run this script directly in PowerShell terminal."));
+      return;
     }
 
-    connection = await mysql.createConnection({
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-    });
+    process.stdout.write("Admin password (hidden): ");
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
 
-    const [existing] = await connection.execute(
-      "SELECT id FROM admins WHERE email = ?",
-      [email]
-    );
+    let password = "";
 
-    if (existing.length) {
-      throw new Error("An admin with this email already exists.");
-    }
+    const onData = (key) => {
+      if (key[0] === 3) {
+        process.stdin.setRawMode(false);
+        process.stdin.removeListener("data", onData);
+        reject(new Error("Password entry cancelled."));
+        return;
+      }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+      if (key[0] === 13 || key[0] === 10) {
+        process.stdin.setRawMode(false);
+        process.stdin.removeListener("data", onData);
+        process.stdout.write("\n");
+        resolve(password);
+        return;
+      }
 
-    await connection.execute(
-      "INSERT INTO admins (name, email, password_hash) VALUES (?, ?, ?)",
-      [name, email, passwordHash]
-    );
+      if (key[0] === 8 || key[0] === 127) {
+        password = password.slice(0, -1);
+        return;
+      }
 
-    console.log("Admin account created successfully.");
-  } finally {
-    if (connection) await connection.end();
-    rl.close();
-  }
+      if (key[0] >= 32) {
+        password += key.toString();
+      }
+    };
+
+    process.stdin.on("data", onData);
+  });
 }
 
-main().catch((error) => {
-  console.error("Setup failed:", error.message);
-  process.exitCode = 1;
-});
+try {
+  const name = (await ask("Admin name: ")).trim();
+  const email = (await ask("Admin email: ")).trim().toLowerCase();
+  const password = await askPassword();
 
+  if (!name || !email || password.length < 12) {
+    throw new Error("Name/email required. Password must be at least 12 characters.");
+  }
+
+  const [existing] = await pool.execute(
+    "SELECT id FROM admins WHERE email = ?",
+    [email]
+  );
+
+  if (existing.length) {
+    throw new Error("An admin with this email already exists.");
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  await pool.execute(
+    "INSERT INTO admins (name, email, password_hash) VALUES (?, ?, ?)",
+    [name, email, passwordHash]
+  );
+
+  console.log("Admin account created successfully.");
+} catch (error) {
+  console.error("Admin setup failed:", error.message);
+  process.exitCode = 1;
+} finally {
+  rl.close();
+  await pool.end();
+}
